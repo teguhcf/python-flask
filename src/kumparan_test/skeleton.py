@@ -20,8 +20,21 @@ from __future__ import division, print_function, absolute_import
 import argparse
 import sys
 import logging
+from pymongo import MongoClient
+from bson.objectid import ObjectId
+from flask import Flask, render_template, jsonify, json, request,jsonify,Response,abort,make_response
 
-from kumparan_test import __version__
+from bson.json_util import dumps
+
+from kumparan_test.model import Model
+
+import datetime
+
+
+from mongojoin.mongojoin import MongoJoin
+from mongojoin.mongocollection import MongoCollection
+
+from src.kumparan_test import __version__
 
 __author__ = "teguhcf"
 __copyright__ = "teguhcf"
@@ -29,89 +42,285 @@ __license__ = "mit"
 
 _logger = logging.getLogger(__name__)
 
+# from flask import Flask, jsonify, abort, make_response, request, Response
+# from flask.ext.pymongo import PyMongo
+# from bson.json_util import dumps
+# from bson.objectid import ObjectId
 
-def fib(n):
-    """Fibonacci example function
+application = Flask(__name__)
 
-    Args:
-      n (int): integer
+client = MongoClient('localhost', 27017)
+db = client.kumparan
 
-    Returns:
-      int: n-th Fibonacci number
-    """
-    assert n > 0
-    a, b = 1, 1
-    for i in range(n-1):
-        a, b = b, a+b
-    return a
+model = Model()
 
 
-def parse_args(args):
-    """Parse command line parameters
+def mongo_to_jsonResponse(mongobj):
+    # dumps function convert mongo object into json
+    js = dumps(mongobj)
+    resp = Response(js, status=200, mimetype='application/json')
+    return resp
 
-    Args:
-      args ([str]): command line parameters as list of strings
+@application.route("/api/v1/news/add", methods=['POST'])
+def addNews():
+    try:
+        json_data = request.json['data']
+        title = json_data['title']
+        content = json_data['content']
+        topic_id = json_data['topic_id']
+        status=json_data['status']
+        user_id=json_data['user_id']
+        created_at=datetime.datetime.utcnow()
 
-    Returns:
-      :obj:`argparse.Namespace`: command line parameters namespace
-    """
-    parser = argparse.ArgumentParser(
-        description="Just a Fibonnaci demonstration")
-    parser.add_argument(
-        '--version',
-        action='version',
-        version='kumparan_test {ver}'.format(ver=__version__))
-    parser.add_argument(
-        dest="n",
-        help="n-th Fibonacci number",
-        type=int,
-        metavar="INT")
-    parser.add_argument(
-        '-v',
-        '--verbose',
-        dest="loglevel",
-        help="set loglevel to INFO",
-        action='store_const',
-        const=logging.INFO)
-    parser.add_argument(
-        '-vv',
-        '--very-verbose',
-        dest="loglevel",
-        help="set loglevel to DEBUG",
-        action='store_const',
-        const=logging.DEBUG)
-    return parser.parse_args(args)
+        # topic_detail = db.topic.find({"topic_id": {"$in": topic_id}})
+        #
+        #
+        # topicList = []
+        # for machine in topic_detail:
+        #     machineItem = {
+        #         'topic_id': machine['topic_id'],
+        #         'topic': machine['topic'],
+        #         # 'news': machine['news']
+        #         'topic_desc' : machine['topic_desc']
+        #     }
+        #     topicList.append(machineItem)
 
+        db.news.insert_one({
+            'title': title, 'content': content, 'topic_id':topic_id, 'status' : status,
+            'user_id':user_id, 'created_at':created_at
+        })
+        return jsonify(status='OK', message=' News inserted successfully')
 
-def setup_logging(loglevel):
-    """Setup basic logging
-
-    Args:
-      loglevel (int): minimum loglevel for emitting messages
-    """
-    logformat = "[%(asctime)s] %(levelname)s:%(name)s:%(message)s"
-    logging.basicConfig(level=loglevel, stream=sys.stdout,
-                        format=logformat, datefmt="%Y-%m-%d %H:%M:%S")
+    except Exception as e:
+        return jsonify(status='ERROR', message=str(e))
 
 
-def main(args):
-    """Main entry point allowing external calls
-
-    Args:
-      args ([str]): command line parameter list
-    """
-    args = parse_args(args)
-    setup_logging(args.loglevel)
-    _logger.debug("Starting crazy calculations...")
-    print("The {}-th Fibonacci number is {}".format(args.n, fib(args.n)))
-    _logger.info("Script ends here")
+@application.route("/api/v1/news/getlist", methods=['GET'])
+def getNewsList():
+    try:
+        data = model.getNewsList()
+        print("masssss")
+    except Exception as e:
+        return str(e)
+    return json.dumps(data)
+    # return mongo_to_jsonResponse(machines)
 
 
-def run():
-    """Entry point for console_scripts
-    """
-    main(sys.argv[1:])
+@application.route("/api/v1/topic/add", methods=['POST'])
+def addTopic():
+    try:
+        json_data = request.json['data']
+        topic_id = json_data['topic_id']
+        topic = json_data['topic']
+        # news_id = json_data['news']
+        topic_desc = json_data['topic_desc']
+
+        # news = db.topic.find({"topic_id": {"$in": news_id}})
+        #
+        db.topic.insert_one({
+            'topic_id': topic_id, 'topic': topic, 'topic_desc':topic_desc
+        })
+        return jsonify(status='OK', message='Topic inserted successfully')
+
+    except Exception as e:
+        return jsonify(status='ERROR', message=str(e))
+
+@application.route('/')
+def showMachineList():
+    return render_template('list.html')
+
+
+@application.route('/api/v1/news/get', methods=['GET'])
+def getNews():
+    try:
+
+        # all_menus = mongo.db.menus.find()
+
+
+        id_machine = request.args.get('id')
+        print("ini id machine", id_machine)
+        # machineId = request.json['id']
+        machineId=request.args.get('id')
+        machine = db.news.find_one({'_id': ObjectId(machineId)})
+        # machineDetail = {
+        #     'id': str(machine['_id']),
+        #     'judul': machine['judul'],
+        #     'content': machine['content'],
+        #     'topic':machine['topic']
+        # }
+        # return json.dumps(machineDetail)
+        return mongo_to_jsonResponse(machine)
+    except Exception as e:
+        return str(e)
+
+
+@application.route('/api/v1', methods=['POST'])
+def updateMachine():
+    try:
+        machineInfo = request.json['data']
+        machineId = machineInfo['id']
+        device = machineInfo['device']
+        ip = machineInfo['ip']
+        username = machineInfo['username']
+        db.news.update_one({'_id': ObjectId(machineId)},
+                                 {'$set': {'date': device, 'tweet': ip, 'lable': username}})
+        return jsonify(status='OK', message='updated successfully')
+    except Exception as e:
+        return jsonify(status='ERROR', message=str(e))
+
+
+@application.route('/api/v1/news/update', methods=['POST'])
+def updateNews():
+    try:
+        # machineInfo = request.json['data']
+        # machineId = machineInfo['id']
+        # device = machineInfo['device']
+        # ip = machineInfo['ip']
+        # username = machineInfo['username']
+
+        json_data = request.json['data']
+        news_id = json_data['news_id']
+        title = json_data['title']
+        content = json_data['content']
+        topic_id = json_data['topic_id']
+        status=json_data['status']
+        user_id=json_data['user_id']
+        last_modified=datetime.datetime.utcnow()
+
+        res = db.news.find_one({'_id': ObjectId(news_id)})
+        if res is None: return jsonify(status='ERROR', message="Data not exist")
+
+
+        db.news.update_one({'_id': ObjectId(news_id)},
+                                 {'$set': {'title': title, 'content': content, 'topic_id': topic_id, 'status':status,
+                                           'user_id':user_id, 'last_modified':last_modified
+                        }})
+        return jsonify(status='OK', message='updated successfully')
+    except Exception as e:
+        return jsonify(status='ERROR', message=str(e))
+
+
+
+@application.route('/api/v1/topic/update', methods=['POST'])
+def updateTopic():
+    try:
+
+        json_data = request.json['data']
+        topic_id = json_data['topic_id']
+        topic = json_data['topic']
+        # news_id = json_data['news']
+        topic_desc = json_data['topic_desc']
+
+        # last_modified=datetime.datetime.utcnow()
+
+        res = db.topic.find_one({'topic_id': topic_id})
+        if res is None: return jsonify(status='ERROR', message="Data not exist")
+
+
+        db.topic.update_one({'topic_id': topic_id},
+                                 {'$set': {'topic': topic, 'topic_desc': topic_desc
+                        }})
+
+        return jsonify(status='OK', message='updated successfully')
+    except Exception as e:
+        return jsonify(status='ERROR', message=str(e))
+
+
+
+
+
+
+
+
+@application.route("/api/v1/topic/getlist", methods=['GET'])
+def getTopicList():
+    try:
+        # print("masuk get machine lst")
+        # id_machine = request.args.get('id')
+        # print("ini id machine", id_machine)
+        # coll.find({"SPCOMNAME": {"$in": ['paddlefish', 'lake sturgeon']}})
+
+        # machines = db.topic.find({"topic_id":{"$in": [1,2]}})
+        machines = db.topic.find()
+        # machineList = []
+        # for machine in machines:
+        #
+        #     machineItem = {
+        #         'id': str(machine['_id']),
+        #         'topic_id': str(machine['topic_id']),
+        #         'topic': machine['topic'],
+        #         'news': machine['news']
+        #     }
+        #     machineList.append(machineItem)
+
+    except Exception as e:
+        return str(e)
+    # return json.dumps(machines)
+    return mongo_to_jsonResponse(machines)
+
+@application.route("/execute", methods=['POST'])
+def execute():
+    try:
+        machineInfo = request.json['data']
+        ip = machineInfo['ip']
+        username = machineInfo['username']
+        password = machineInfo['password']
+        command = machineInfo['command']
+        isRoot = machineInfo['isRoot']
+
+        env.host_string = username + '@' + ip
+        env.password = password
+        resp = ''
+        with settings(warn_only=True):
+            if isRoot:
+                resp = sudo(command)
+            else:
+                resp = run(command)
+
+        return jsonify(status='OK', message=resp)
+    except Exception as e:
+        print('Error is ' + str(e))
+        return jsonify(status='ERROR', message=str(e))
+
+
+@application.route("/api/v1/news/delete", methods=['DELETE'])
+def deleteNews():
+    try:
+        id = request.args.get('id')
+        # machineId = request.json['id']
+        res = db.news.find_one({'_id': ObjectId(id)})
+        if res is None: return jsonify(status='ERROR', message="Data not exist")
+
+        db.news.remove({'_id': ObjectId(id)})
+        return jsonify(status='OK', message='deletion successful')
+    except Exception as e:
+        return jsonify(status='ERROR', message=str(e))
+
+
+@application.route("/api/v1/topic/delete", methods=['DELETE'])
+def deleteTopic():
+    try:
+        id = request.args.get('id')
+        # machineId = request.json['id']
+        res = db.topic.find_one({'_id': ObjectId(id)})
+        if res is None: return jsonify(status='ERROR', message="Data not exist")
+
+        db.topic.remove({'_id': ObjectId(id)})
+        return jsonify(status='OK', message='deletion successful')
+    except Exception as e:
+        return jsonify(status='ERROR', message=str(e))
+
+
+@application.route("/deleteMachine", methods=['POST'])
+def deleteM():
+    try:
+        machineId = request.json['id']
+        db.news.remove({'_id': ObjectId(machineId)})
+        return jsonify(status='OK', message='deletion successful')
+    except Exception as e:
+        return jsonify(status='ERROR', message=str(e))
 
 
 if __name__ == "__main__":
-    run()
+    application.run(host='0.0.0.0')
+
